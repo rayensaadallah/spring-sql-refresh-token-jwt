@@ -64,89 +64,86 @@ public class AuthController {
 
   @PostMapping("/signin")
   public ResponseEntity<?> authenticateUser(@Valid @RequestBody LoginRequest loginRequest) {
-
-    Authentication authentication = authenticationManager
-        .authenticate(new UsernamePasswordAuthenticationToken(loginRequest.getUsername(), loginRequest.getPassword()));
-
+    Authentication authentication = authenticationManager.authenticate(
+            new UsernamePasswordAuthenticationToken(loginRequest.getUsername(), loginRequest.getPassword()));
     SecurityContextHolder.getContext().setAuthentication(authentication);
-
     UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
 
     ResponseCookie jwtCookie = jwtUtils.generateJwtCookie(userDetails);
-
-    List<String> roles = userDetails.getAuthorities().stream()
-        .map(item -> item.getAuthority())
-        .collect(Collectors.toList());
-    
     RefreshToken refreshToken = refreshTokenService.createRefreshToken(userDetails.getId());
-    
     ResponseCookie jwtRefreshCookie = jwtUtils.generateRefreshJwtCookie(refreshToken.getToken());
 
+    List<String> roles = userDetails.getAuthorities().stream()
+            .map(item -> item.getAuthority())
+            .collect(Collectors.toList());
+
+    UserInfoResponse userInfoResponse = new UserInfoResponse(
+            userDetails.getId(), userDetails.getUsername(), userDetails.getEmail(), roles,
+            jwtCookie.getValue(), jwtRefreshCookie.getValue());
+
     return ResponseEntity.ok()
-              .header(HttpHeaders.SET_COOKIE, jwtCookie.toString())
-              .header(HttpHeaders.SET_COOKIE, jwtRefreshCookie.toString())
-              .body(new UserInfoResponse(userDetails.getId(),
-                                         userDetails.getUsername(),
-                                         userDetails.getEmail(),
-                                         roles));
+            .header(HttpHeaders.SET_COOKIE, jwtCookie.toString())
+            .header(HttpHeaders.SET_COOKIE, jwtRefreshCookie.toString())
+            .body(userInfoResponse);
   }
+
 
   @PostMapping("/signup")
   public ResponseEntity<?> registerUser(@Valid @RequestBody SignupRequest signUpRequest) {
     if (userRepository.existsByUsername(signUpRequest.getUsername())) {
       return ResponseEntity.badRequest().body(new MessageResponse("Error: Username is already taken!"));
     }
-
     if (userRepository.existsByEmail(signUpRequest.getEmail())) {
       return ResponseEntity.badRequest().body(new MessageResponse("Error: Email is already in use!"));
     }
 
     // Create new user's account
-    User user = new User(signUpRequest.getUsername(),
-                         signUpRequest.getEmail(),
-                         encoder.encode(signUpRequest.getPassword()));
-
+    User user = new User(signUpRequest.getUsername(), signUpRequest.getEmail(), encoder.encode(signUpRequest.getPassword()));
     Set<String> strRoles = signUpRequest.getRole();
     Set<Role> roles = new HashSet<>();
 
-    if (strRoles == null) {
-      Role userRole = roleRepository.findByName(ERole.ROLE_USER)
-          .orElseThrow(() -> new RuntimeException("Error: Role is not found."));
-      roles.add(userRole);
+    if (strRoles == null || strRoles.isEmpty()) {
+      Role defaultRole = roleRepository.findByName(ERole.ROLE_USER)
+              .orElseThrow(() -> new RuntimeException("Error: Default Role USER not found."));
+      roles.add(defaultRole);
     } else {
       strRoles.forEach(role -> {
-        switch (role) {
-        case "admin":
-          Role adminRole = roleRepository.findByName(ERole.ROLE_ADMIN)
-              .orElseThrow(() -> new RuntimeException("Error: Role is not found."));
-          roles.add(adminRole);
-
-          break;
-        case "mod":
-          Role modRole = roleRepository.findByName(ERole.ROLE_MODERATOR)
-              .orElseThrow(() -> new RuntimeException("Error: Role is not found."));
-          roles.add(modRole);
-
-          break;
-        default:
-          Role userRole = roleRepository.findByName(ERole.ROLE_USER)
-              .orElseThrow(() -> new RuntimeException("Error: Role is not found."));
-          roles.add(userRole);
-        }
+        Role r = roleRepository.findByName(ERole.valueOf(role))
+                .orElseThrow(() -> new RuntimeException("Error: Role is not found - " + role));
+        roles.add(r);
       });
     }
 
     user.setRoles(roles);
     userRepository.save(user);
 
-    return ResponseEntity.ok(new MessageResponse("User registered successfully!"));
+    // Authenticate to generate JWT and RefreshToken
+    Authentication authentication = authenticationManager.authenticate(
+            new UsernamePasswordAuthenticationToken(signUpRequest.getUsername(), signUpRequest.getPassword()));
+    SecurityContextHolder.getContext().setAuthentication(authentication);
+    UserDetailsImpl newUserDetails = (UserDetailsImpl) authentication.getPrincipal();
+
+    ResponseCookie jwtCookie = jwtUtils.generateJwtCookie(newUserDetails);
+    RefreshToken newRefreshToken = refreshTokenService.createRefreshToken(newUserDetails.getId());
+    ResponseCookie jwtRefreshCookie = jwtUtils.generateRefreshJwtCookie(newRefreshToken.getToken());
+
+    List<String> roleNames = roles.stream().map(role -> role.getName().name()).collect(Collectors.toList());
+    UserInfoResponse userInfoResponse = new UserInfoResponse(
+            newUserDetails.getId(), newUserDetails.getUsername(), newUserDetails.getEmail(), roleNames,
+            jwtCookie.getValue(), jwtRefreshCookie.getValue());
+
+    return ResponseEntity.ok()
+            .header(HttpHeaders.SET_COOKIE, jwtCookie.toString())
+            .header(HttpHeaders.SET_COOKIE, jwtRefreshCookie.toString())
+            .body(userInfoResponse);
   }
+
 
   @PostMapping("/signout")
   public ResponseEntity<?> logoutUser() {
     Object principle = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-    if (principle.toString() != "anonymousUser") {      
-      Long userId = ((UserDetailsImpl) principle).getId();
+    if (principle.toString() != "anonymousUser") {
+      String userId = ((UserDetailsImpl) principle).getId();
       refreshTokenService.deleteByUserId(userId);
     }
     
@@ -158,6 +155,7 @@ public class AuthController {
         .header(HttpHeaders.SET_COOKIE, jwtRefreshCookie.toString())
         .body(new MessageResponse("You've been signed out!"));
   }
+
 
   @PostMapping("/refreshtoken")
   public ResponseEntity<?> refreshtoken(HttpServletRequest request) {

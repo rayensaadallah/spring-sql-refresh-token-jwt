@@ -1,5 +1,8 @@
 package com.bezkoder.spring.security.jwt.controllers;
 
+import com.bezkoder.spring.security.jwt.models.User;
+import com.bezkoder.spring.security.jwt.security.services.UserDetailsServiceImpl;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -12,6 +15,9 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/test")
 public class TestController {
+
+  @Autowired
+  UserDetailsServiceImpl userDetailsService;
   @GetMapping("/all")
   public String allAccess() {
     return "Public Content.";
@@ -19,8 +25,8 @@ public class TestController {
 
   @GetMapping("/user")
   @PreAuthorize("hasRole('USER') or hasRole('MODERATOR') or hasRole('ADMIN')")
-  public String userAccess() {
-    return "User Content.";
+  public User userAccess() {
+    return userDetailsService.getAuthenticatedUser();
   }
 
   @GetMapping("/mod")
@@ -30,7 +36,7 @@ public class TestController {
   }
 
   @GetMapping("/admin")
-  @PreAuthorize("hasRole('ADMIN')")
+  @PreAuthorize("hasRole('USER') or hasRole('MODERATOR') or hasRole('ADMIN')")
   public String adminAccess() {
     return "Admin Board.";
   }

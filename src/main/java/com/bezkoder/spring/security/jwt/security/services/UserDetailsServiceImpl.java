@@ -1,6 +1,7 @@
 package com.bezkoder.spring.security.jwt.security.services;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -22,5 +23,12 @@ public class UserDetailsServiceImpl implements UserDetailsService {
         .orElseThrow(() -> new UsernameNotFoundException("User Not Found with username: " + username));
 
     return UserDetailsImpl.build(user);
+  }
+
+  public User getAuthenticatedUser() {
+    String authenticatedUserEmail = SecurityContextHolder.getContext().getAuthentication().getName();
+    User user = this.userRepository.findByUsername(authenticatedUserEmail).get();
+    return user;
+
   }
 }
